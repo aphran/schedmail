@@ -12,9 +12,6 @@ def validdate(d):
 def setup_logger():
     '''Initialize logging'''
     global logger; logger = logging.getLogger(sys.argv[0])
-    globals().update({
-        'ERR_ARG': 1
-    })
     loghandler = logging.StreamHandler()
     loghandler.setFormatter(logging.Formatter("%(levelname)s: %(message)s"))
     logger.addHandler(loghandler)
@@ -29,28 +26,34 @@ def handle_args():
     parser.add_argument('-b', '--body', help='contents of the appointed item (double quote it). Needed with actions "add" and "set"', default=None)
     globals().update(parser.parse_args().__dict__)
     # validate args
-    if (action == 'add' or action == 'set') and not body:
+    if (action == 'show' or action == 'del') and body:
+        logger.warn('Ignoring body (-b or --body) when using action "{}"'.format(action))
+    if (action == 'add'  or action == 'set') and not body:
         logger.error('Please specify a body (-b or --body) when using action "{}"'.format(action))
-        sys.exit(ERR_ARG)
+        raise ValueError('Missing argument "body"')
 
 def init():
     setup_logger()
     handle_args()
 
 def handle_action():
+    if action not in allactions:
+        logger.error('Action "{}" is invalid. How did this EVEN?! (valid actions are: {})'.format(action, allactions))
+        raise ValueError('Invalid action')
     try:
         eval('action_{}()'.format(action))
+        logger.info('Processing action "{}" items for date: "{}"'.format(action, date))
     except NameError as e:
         logger.error('Action "{}" not implemented'.format(action))
-        raise NotImplemented
+        raise NotImplementedError
 
 def action_show():
-    logger.info('Showing items for date: "{}"'.format(date))
+    pass
 
 def action_send():
+    if body: logger.info('Specified body will be appended to message')
     #for email in emails:
         #send email
-    pass
 
 def action_add():
     pass
