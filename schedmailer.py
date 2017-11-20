@@ -42,10 +42,10 @@ def handle_action():
         raise ValueError('Invalid action')
     try:
         eval('action_{}()'.format(action))
-        logger.info('Processing action "{}" items for date: "{}"'.format(action, date))
     except NameError as e:
         logger.error('Action "{}" not implemented'.format(action))
         raise NotImplementedError
+    logger.info('Processing action "{}" items for date: "{}"'.format(action, date))
 
 def action_show():
     pass
