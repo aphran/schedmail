@@ -17,7 +17,7 @@ class DayRecord(argparse.Namespace):
                 self.locations = {}
                 self.date = pdate
             else:
-                raise ValueError('Missing date (parameter "pdate") for DayRecord')
+                raise ValueError('Missing date (parameter "pdate") for DayRecord, and no json_in')
 
     def del_location_from_record(location_record):
         try:
@@ -26,7 +26,7 @@ class DayRecord(argparse.Namespace):
             raise AttributeError('Malformed location record {}'.format(location_record))
         self.locations[location_name] = None
 
-    def del_location_from_str(location)
+    def del_location_from_str(location):
         self.locations[location] = None
 
     def update_location(location_record):
@@ -39,13 +39,13 @@ class DayRecord(argparse.Namespace):
     def append_msg_to_location(msg, loc):
         pass
 
-    def get_location_from_str(location)
+    def get_location_from_str(location):
         try:
             return self.locations[location]
         except KeyError as e:
             return None
 
-    def get_location_from_record(location_record)
+    def get_location_from_record(location_record):
         try:
             return self.locations[location_record.location]
         except KeyError as e:
@@ -69,13 +69,13 @@ class LocationRecord(argparse.Namespace):
                 self.msg = pmsg
                 self.wobj = pwobj
             else:
-                raise ValueError('Location ("ploc" parameter) not provided for LocationRecord')
+                raise ValueError('Missing location ("ploc" parameter) for LocationRecord, and no json_in')
 
     def to_json():
         json_data = json.dumps({
             'location': self.location,
             'msg': self.msg,
-            'weather': self.wobj.
+            'weather': self.wobj
         })
         return json_data
 
@@ -95,7 +95,7 @@ def valid_out(opt):
         for item in opt:
             if item in all_outs:
                 outs += item
-            else
+            else:
                 raise ValueError('Invalid output "{}"'.format(item))
         return outs
 
@@ -107,13 +107,16 @@ def setup_logger():
     logger.addHandler(loghandler)
     logger.setLevel(logging.INFO)
 
+def get_default_place():
+    return default_place
+
 def handle_args():
     '''Parse incoming arguments and update globals accordingly'''
     parser = argparse.ArgumentParser()
     parser.add_argument('-d', '--date',   dest='tdate', type=valid_date, default=valid_date(None), help='default is today')
     parser.add_argument('-a', '--action', dest='action', default=default_action, choices=all_actions, help='tells the program what to do')
     parser.add_argument('-b', '--body', help='contents of the appointed item (double quote it). Needed with action "write"', default=None)
-    parser.add_argument('-p', '--place', dest='place', default=default_place, help='weather location, formatted as "City,CC" where CC is the country code')
+    parser.add_argument('-p', '--place', dest='place', default=get_default_place(), help='weather location, formatted as "City,CC" where CC is the country code')
     parser.add_argument('-o', '--out', dest='outputs', type=valid_out, default=valid_out(None), help='desired outputs, allowed options are "e" for email and "s" for standard output. Specify them as a single word. Example: "-o es" # sets output to be both email and standard output')
     globals().update(parser.parse_args().__dict__)
 
@@ -141,12 +144,8 @@ def init_globals():
     emails = [
         'afz902k@gmail.com'
     ]
-    global default_places
-    default_places = [
-        'Aguascalientes,MX',
-        'Guadalajara,MX',
-        'Amsterdam,NL'
-    ] 
+    global default_place
+    default_place = 'Aguascalientes,MX'
     global all_actions
     all_actions = ['render', 'write', 'del']
     global default_action
