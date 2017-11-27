@@ -8,80 +8,109 @@ from datetime import time
 from datetime import datetime
 import pyowm
 
-class DayRecord(argparse.Namespace):
-    def __init__(self, pdate = None, json_in = None):
+class CalDB(argparse.Namespace):
+
+    # DB methods
+
+    def __init__(self, json_in = None, dbfile = None):
         if json_in:
             self.set_from_json(json_in)
         else:
-            if pdate:
-                self.locations = {}
-                self.date = pdate
-            else:
-                raise ValueError('Missing date (parameter "pdate") for DayRecord, and no json_in')
+            if dbfile:
+                self.dbfile = dbfile
+                self.init_db(dbfile)
+            self.data = {}
 
-    def del_location_from_record(location_record):
+    def init_db(self, pfile = None):
+        if not pfile:
+            pfile = self.dbfile
+        if pfile:
+            self.set_from_json(self.read_file(pfile))
+
+    def write_db(self):
+        self.write_file(self.dbfile, self.get_json)
+
+    def get_json(self):
+        return json.dumps(self.data)
+
+    def set_from_json(self, json_in):
         try:
-            location_name = location_record.location
-        except AttributeError as e:
-            raise AttributeError('Malformed location record {}'.format(location_record))
-        self.locations[location_name] = None
+            self.data = json.loads(json_in)
+        except ValueError:
+            logger.warn('Could not load JSON data from file, defaulting to empty dict')
+            self.data = {}
 
-    def del_location_from_str(location):
-        self.locations[location] = None
+    def read_file(self, jfile):
+        with open(jfile, 'a+') as jf:
+            rdata = jf.read()
+        return rdata
 
-    def update_location(location_record):
-        try:
-            location_name = location_record.location
-        except AttributeError as e:
-            raise AttributeError('Malformed location record {}'.format(location_record))
-        self.locations[location_name] = location_record
+    def write_file(self, jfile, sdata):
+        with open(jfile, 'w+') as jf:
+            jf.write(sdata)
 
-    def append_msg_to_location(msg, loc):
-        pass
+    # Location methods
 
-    def get_location_from_str(location):
-        try:
-            return self.locations[location]
-        except KeyError as e:
-            return None
+    def del_location(self, loc_name):
+        self.data[loc_name] = None
 
-    def get_location_from_record(location_record):
-        try:
-            return self.locations[location_record.location]
-        except KeyError as e:
-            return None
-        except AttributeError as e:
-            raise AttributeError('Malformed location record {}'.format(location_record))
-
-    def to_json():
-        return ''
-    def set_from_json(json_in):
-        # set data from json_in
-        pass
-
-class LocationRecord(argparse.Namespace):
-    def __init__(self, json_in = None, pmsg = '', ploc = '', pwobj = ''):
-        if json_in:
-            self.set_from_json(json_in)
+    def upd_location(self, loc_name, loc_dict = {}, loc_json_in = None):
+        if loc_json_in:
+            self.data[loc_name] = json.loads(loc_json_in)
         else:
-            if ploc:
-                self.location = ploc
-                self.msg = pmsg
-                self.wobj = pwobj
-            else:
-                raise ValueError('Missing location ("ploc" parameter) for LocationRecord, and no json_in')
+            self.data[loc_name] = loc_dict
 
-    def to_json():
-        json_data = json.dumps({
-            'location': self.location,
-            'msg': self.msg,
-            'weather': self.wobj
-        })
-        return json_data
+    def get_loc_json(self, loc_name):
+        return json_dumps(self.data[loc_name])
 
-    def set_from_json(json_in):
-        # set data from json_in
-        pass
+    def get_location(self, loc_name):
+        try:
+            return self.data[loc_name]
+        except KeyError as e:
+            return None
+
+    # Date methods
+
+    def del_date(self, loc_name, pdate):
+        self.data[loc_name][pdate] = None
+
+    def upd_date(self, loc_name, pdate, date_dict = {}, date_json_in = None):
+        if date_json_in:
+            self.data[loc_name][pdate] = json.loads(date_json_in)
+        else:
+            self.data[loc_name][pdate] = date_dict
+
+    def get_date_json(self, loc_name, pdate):
+        return json_dumps(self.data[loc_name][pdate])
+
+    def get_date(self, loc_name, pdate):
+        try:
+            return self.data[loc_name][pdate]
+        except KeyError as e:
+            return None
+
+    # Sub-date methods
+
+    def get_msg(self, loc_name, pdate):
+        return self.data[loc_name][pdate]['msg']
+
+    def del_msg(self, loc_name, pdate):
+        self.data[loc_name][pdate]['msg'] = None
+
+    def upd_msg(self, loc_name, pdate, msg):
+        self.data[loc_name][pdate]['msg'] = msg
+
+    def append_msg(self, loc_name, pdate, msg):
+        self.data[loc_name][pdate]['msg'] += msg
+
+    def get_weather(self, loc_name, pdate):
+        return self.data[loc_name][pdate]['wth']
+
+    def del_weather(self, loc_name, pdate):
+        self.data[loc_name][pdate]['wth'] = None
+
+    def upd_weather(self, loc_name, pdate, pweather):
+        self.data[loc_name][pdate]['wth'] = pweather
 
 def valid_date(d):
     '''Validate a date (given as string) into a datetime object'''
@@ -124,22 +153,17 @@ def init():
     init_globals()
     setup_logger()
     handle_args()
+    init_db()
 
-def db_read():
-    json_data = ''
-    # read json_data from file
-    day_record = DayRecord(json_in = json_data)
-    return day_record
-
-def db_write(day_record):
-    json_data = day_record.to_json()
-    # write json_data to file
+def init_db():
+    global dbobj
+    dbobj = CalDB(dbfile = sched_file)
 
 def init_globals():
     global template_file
     template_file = 'mail_template.jj'
     global sched_file
-    sched_file = 'schedule.json'
+    sched_file = 'dbschedule.json'
     global emails
     emails = [
         'afz902k@gmail.com'
@@ -154,17 +178,6 @@ def init_globals():
     all_outs = 'es'
     global default_outs
     default_outs = 's'
-
-def handle_action():
-    if action not in all_actions:
-        logger.error('Action "{}" is invalid. How did this EVEN?! (valid actions are: {})'.format(action, all_actions))
-        raise ValueError('Invalid action')
-    try:
-        eval('action_{}()'.format(action))
-    except NameError as e:
-        logger.error('Action "{}" not implemented'.format(action))
-        raise NotImplementedError
-    logger.info('Processing action "{}" items for date: "{}"'.format(action, tdate))
 
 def action_render():
     init_weather()
@@ -188,6 +201,17 @@ def action_del():
     # validate args
     if body:
         logger.warn('Ignoring body (-b or --body) when using action "{}"'.format(action))
+
+def handle_action():
+    if action not in all_actions:
+        logger.error('Action "{}" is invalid. How did this EVEN?! (valid actions are: {})'.format(action, all_actions))
+        raise ValueError('Invalid action')
+    try:
+        eval('action_{}()'.format(action))
+    except NameError as e:
+        logger.error('Action "{}" not implemented'.format(action))
+        raise NotImplementedError
+    logger.info('Processing action "{}" items for date: "{}"'.format(action, tdate))
 
 def init_weather():
     global weathers
