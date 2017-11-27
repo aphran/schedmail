@@ -11,16 +11,17 @@ import pyowm
 
 class CalDB(argparse.Namespace):
 
-    default_day_record = {
-        'msg': '',
-        'wth': None
-    }
+    def default_day_record(self, msg = '', wth = {}):
+        return {
+            'msg': msg,
+            'wth': wth
+        }
 
-    def default_location_record(self, day):
-        return { day: self.default_day_record }
+    def default_location_record(self, day, msg = '', wth = {}):
+        return { day: self.default_day_record(msg, wth) }
 
-    def default_db_record(self, location, day):
-        return { location: self.default_location_record(day) }
+    def default_db_record(self, location, day, msg = '', wth = {}):
+        return { location: self.default_location_record(day, msg, wth) }
 
     # DB methods
 
@@ -28,10 +29,10 @@ class CalDB(argparse.Namespace):
         if json_in:
             self.set_from_json(json_in)
         else:
+            self.data = {}
             if dbfile:
                 self.dbfile = dbfile
                 self.init_db(dbfile)
-            self.data = {}
 
     def init_db(self, pfile = None):
         if not pfile:
@@ -39,8 +40,11 @@ class CalDB(argparse.Namespace):
         if pfile:
             self.set_from_json(self.read_file(pfile))
 
+    def default_update(self, location, day, msg = '', wth = {}):
+        self.data.update(self.default_db_record(location, day, msg, wth))
+
     def write_db(self):
-        self.write_file(self.dbfile, self.get_json)
+        self.write_file(self.dbfile, self.get_json())
 
     def get_json(self):
         return json.dumps(self.data)
@@ -121,13 +125,24 @@ class CalDB(argparse.Namespace):
         self.data[loc_name][pdate]['msg'] += msg
 
     def get_weather(self, loc_name, pdate):
-        return self.data[loc_name][pdate]['wth']
+        try:
+            return self.data[loc_name][pdate]['wth']
+        except KeyError as e:
+            logger.warn('Weather record for {}, {} did not exist, returned empty dict'.format(loc_name, pdate))
+            return {}
 
     def del_weather(self, loc_name, pdate):
-        self.data[loc_name][pdate]['wth'] = None
+        try:
+            self.data[loc_name][pdate]['wth'] = None
+        except KeyError as e:
+            logger.info('Weather record for {}, {} did not exist, no action taken'.format(loc_name, pdate))
 
     def upd_weather(self, loc_name, pdate, pweather):
-        self.data[loc_name][pdate]['wth'] = pweather
+        try:
+            self.data[loc_name][pdate]['wth'] = pweather
+        except KeyError as e:
+            logger.info('No records found for location {} and date {}, initializing!'.format(loc_name, pdate))
+            self.default_update(loc_name, pdate, wth = pweather)
 
 def valid_date(d):
     '''Validate a date (given as string) into a datetime object'''
@@ -175,6 +190,7 @@ def init():
 def init_db():
     global dbobj
     dbobj = CalDB(dbfile = sched_file)
+    logger.info('DB Initialized with data: {}'.format(dbobj.get_json()))
 
 def init_globals():
     global template_file
@@ -208,11 +224,14 @@ def out_cli(contents):
 
 def action_render():
     init_weather()
+    logger.info('Before:\n{}'.format(dbobj.get_json()))
+    dbobj.upd_weather(place, get_date_str(), get_weather_for_location(place))
+    logger.info('Afer:\n{}'.format(dbobj.get_json()))
+    dbobj.write_db()
     record = dbobj.get_date(place, get_date_str()) #this is a dict
     if body:
         logger.info('Specified body will be appended to message')
         record['msg'] += body
-    record['wth'] = get_weather_for_location(place)
     contents = clean_dump(record)
     if 'e' in outs:
         for email in emails:
