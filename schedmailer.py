@@ -68,13 +68,16 @@ class CalDB(argparse.Namespace):
     # Location methods
 
     def del_location(self, loc_name):
-        self.data[loc_name] = None
+        self.data.pop(loc_name, None)
 
     def upd_location(self, loc_name, loc_dict = {}, loc_json_in = None):
+        up_item = ''
         if loc_json_in:
-            self.data[loc_name] = json.loads(loc_json_in)
+            up_item = json.loads(loc_json_in)
         else:
-            self.data[loc_name] = loc_dict
+            up_item = loc_dict
+        # might need to catch something here
+        self.data[loc_name] = up_item
 
     def get_loc_json(self, loc_name):
         return json.dumps(self.data[loc_name])
@@ -88,13 +91,23 @@ class CalDB(argparse.Namespace):
     # Date methods
 
     def del_date(self, loc_name, pdate):
-        self.data[loc_name][pdate] = None
+        try:
+            logger.info('Before: {}'.format(self.data[loc_name]))
+            self.data[loc_name].pop(pdate)
+            logger.info('After:  {}'.format(self.data[loc_name]))
+        except KeyError as e:
+            logger.info('No records found for {}, {}. Skipping deletion'.format(loc_name, pdate))
 
     def upd_date(self, loc_name, pdate, date_dict = {}, date_json_in = None):
+        upd_item = ''
         if date_json_in:
-            self.data[loc_name][pdate] = json.loads(date_json_in)
+            upd_item = json.loads(date_json_in)
         else:
-            self.data[loc_name][pdate] = date_dict
+            upd_item = date_dict
+        try:
+            self.data[loc_name][pdate] = upd_item
+        except KeyError as e:
+            self.data[loc_name] = self.default_location_record(pdate, upd_item['msg'], upd_item['wth'])
 
     def get_date_json(self, loc_name, pdate):
         try:
@@ -116,10 +129,17 @@ class CalDB(argparse.Namespace):
         return self.data[loc_name][pdate]['msg']
 
     def del_msg(self, loc_name, pdate):
-        self.data[loc_name][pdate]['msg'] = None
+        try:
+            self.data[loc_name][pdate]['msg'] = ''
+        except KeyError as e:
+            logger.info('No records found for {}, {}. Skipping deletion'.format(loc_name, pdate))
 
-    def upd_msg(self, loc_name, pdate, msg):
-        self.data[loc_name][pdate]['msg'] = msg
+    def upd_msg(self, loc_name, pdate, pmsg):
+        try:
+            self.data[loc_name][pdate]['msg'] = pmsg
+        except KeyError as e:
+            logger.info('No records found for location {} and date {}, initializing!'.format(loc_name, pdate))
+            self.default_update(loc_name, pdate, msg = pmsg)
 
     def append_msg(self, loc_name, pdate, msg):
         self.data[loc_name][pdate]['msg'] += msg
@@ -146,7 +166,7 @@ class CalDB(argparse.Namespace):
 
 def valid_date(d):
     '''Validate a date (given as string) into a datetime object'''
-    return datetime.strptime('{} 00:00'.format(d), '%Y-%m-%d %h:%m') if d else datetime.combine(date.today(), time.min)
+    return datetime.strptime('{}'.format(d), '%Y-%m-%d') if d else datetime.combine(date.today(), time.min)
 
 def valid_out(opt):
     outs = ''
@@ -190,7 +210,7 @@ def init():
 def init_db():
     global dbobj
     dbobj = CalDB(dbfile = sched_file)
-    logger.info('DB Initialized with data: {}'.format(dbobj.get_json()))
+    logger.debug('DB Initialized with data: {}'.format(dbobj.get_json()))
 
 def init_globals():
     global template_file
@@ -224,9 +244,7 @@ def out_cli(contents):
 
 def action_render():
     init_weather()
-    logger.info('Before:\n{}'.format(dbobj.get_json()))
     dbobj.upd_weather(place, get_date_str(), get_weather_for_location(place))
-    logger.info('Afer:\n{}'.format(dbobj.get_json()))
     dbobj.write_db()
     record = dbobj.get_date(place, get_date_str()) #this is a dict
     if body:
@@ -243,11 +261,14 @@ def action_write():
     if not body:
         logger.error('Please specify a body (-b or --body) when using action "{}"'.format(action))
         raise ValueError('Missing argument "body"')
+    dbobj.upd_msg(place, get_date_str(), body)
+    dbobj.write_db()
 
 def action_del():
-    # validate args
     if body:
         logger.warn('Ignoring body (-b or --body) when using action "{}"'.format(action))
+    dbobj.del_date(place, get_date_str())
+    dbobj.write_db()
 
 def handle_action():
     if action not in all_actions:
@@ -261,7 +282,7 @@ def handle_action():
     #except NameError as e:
     #    logger.error('Action method "{}" not implemented'.format(action_method))
     #    raise NotImplementedError
-    logger.info('Processing action "{}" items for date: "{}"'.format(action, tdate))
+    logger.info('Processing action "{}" items for date: "{}"'.format(action, get_date_str()))
 
 def init_weather():
     global weathers
@@ -277,7 +298,7 @@ def init_weather():
 
 def get_weather_for_location(lplace):
     if not lplace: lplace = place
-    logger.debug('Getting weather data for "{}" today ({})'.format(lplace, tdate))
+    logger.debug('Getting weather data for "{}" today ({})'.format(lplace, get_date_str()))
     wth = owm.weather_at_place(lplace).get_weather()
     message_dict = {
         'Weather data for {}'.format(lplace): {
