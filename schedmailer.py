@@ -6,9 +6,21 @@ import sys
 from datetime import date
 from datetime import time
 from datetime import datetime
+import pprint
 import pyowm
 
 class CalDB(argparse.Namespace):
+
+    default_day_record = {
+        'msg': '',
+        'wth': None
+    }
+
+    def default_location_record(self, day):
+        return { day: self.default_day_record }
+
+    def default_db_record(self, location, day):
+        return { location: self.default_location_record(day) }
 
     # DB methods
 
@@ -61,13 +73,13 @@ class CalDB(argparse.Namespace):
             self.data[loc_name] = loc_dict
 
     def get_loc_json(self, loc_name):
-        return json_dumps(self.data[loc_name])
+        return json.dumps(self.data[loc_name])
 
     def get_location(self, loc_name):
         try:
             return self.data[loc_name]
         except KeyError as e:
-            return None
+            return {}
 
     # Date methods
 
@@ -81,13 +93,18 @@ class CalDB(argparse.Namespace):
             self.data[loc_name][pdate] = date_dict
 
     def get_date_json(self, loc_name, pdate):
-        return json_dumps(self.data[loc_name][pdate])
+        try:
+            date_record = json.dumps(self.data[loc_name][pdate])
+        except KeyError as e:
+            logger.warn('No records found for location {} and date {}, returning empty string'.format(loc_name, pdate))
+            date_record = ''
+        return date_record
 
     def get_date(self, loc_name, pdate):
         try:
             return self.data[loc_name][pdate]
         except KeyError as e:
-            return None
+            return self.default_day_record
 
     # Sub-date methods
 
@@ -146,7 +163,7 @@ def handle_args():
     parser.add_argument('-a', '--action', dest='action', default=default_action, choices=all_actions, help='tells the program what to do')
     parser.add_argument('-b', '--body', help='contents of the appointed item (double quote it). Needed with action "write"', default=None)
     parser.add_argument('-p', '--place', dest='place', default=get_default_place(), help='weather location, formatted as "City,CC" where CC is the country code')
-    parser.add_argument('-o', '--out', dest='outputs', type=valid_out, default=valid_out(None), help='desired outputs, allowed options are "e" for email and "s" for standard output. Specify them as a single word. Example: "-o es" # sets output to be both email and standard output')
+    parser.add_argument('-o', '--out', dest='outs', type=valid_out, default=valid_out(None), help='desired outputs, allowed options are "e" for email and "s" for standard output. Specify them as a single word. Example: "-o es" # sets output to be both email and standard output')
     globals().update(parser.parse_args().__dict__)
 
 def init():
@@ -179,18 +196,29 @@ def init_globals():
     global default_outs
     default_outs = 's'
 
+def get_date_str():
+    return tdate.strftime('%Y-%m-%d')
+
+def out_email(contents):
+    logger.info('Sending e-mail!')
+
+def out_cli(contents):
+    msg = '\n' + contents if contents else 'No records for this day'
+    logger.info('Information for location: {} and date: {} - {}'.format(place, get_date_str(), msg))
+
 def action_render():
     init_weather()
+    record = dbobj.get_date(place, get_date_str()) #this is a dict
     if body:
         logger.info('Specified body will be appended to message')
-    day_record = db_read()
-    day_record.append_msg_to_location(place, body)
-    db_write(day_record)
+        record['msg'] += body
+    record['wth'] = get_weather_for_location(place)
+    contents = clean_dump(record)
     if 'e' in outs:
         for email in emails:
-            send_email(DayRecord.to_html())
+            out_email(contents)
     if 's' in outs:
-            show_msg(DayRecord.to_plain())
+            out_cli(contents)
 
 def action_write():
     if not body:
@@ -207,10 +235,13 @@ def handle_action():
         logger.error('Action "{}" is invalid. How did this EVEN?! (valid actions are: {})'.format(action, all_actions))
         raise ValueError('Invalid action')
     try:
-        eval('action_{}()'.format(action))
-    except NameError as e:
-        logger.error('Action "{}" not implemented'.format(action))
-        raise NotImplementedError
+        action_method = 'action_{}()'.format(action)
+        eval(action_method)
+    except:
+        raise
+    #except NameError as e:
+    #    logger.error('Action method "{}" not implemented'.format(action_method))
+    #    raise NotImplementedError
     logger.info('Processing action "{}" items for date: "{}"'.format(action, tdate))
 
 def init_weather():
@@ -227,14 +258,48 @@ def init_weather():
 
 def get_weather_for_location(lplace):
     if not lplace: lplace = place
-    #logger.info('Getting weather data for "{}" today ({})'.format(where, tdate))
-    return own.weather_at_place(where).get_weather().detailed_status
+    logger.debug('Getting weather data for "{}" today ({})'.format(lplace, tdate))
+    wth = owm.weather_at_place(lplace).get_weather()
+    message_dict = {
+        'Weather data for {}'.format(lplace): {
+            'Status' : wth.get_detailed_status(),
+            'Temperature': wth.get_temperature(),
+            'Humidity': wth.get_humidity(),
+            'Wind': wth.get_wind()
+        }
+    }
+    return message_dict
 
 def compose_msg(extra_msg = ''):
     template = ''
     #db_weather, db_msg = read_db(date)
     #template = render_template(db_weather, db_msg, extra_msg)
     return template
+
+def clean_dump(obj, depth = 0):
+    def appendln(a, b):
+        if not b.endswith('\n'): b += '\n'
+        ret_str = '{}{}'.format(a, b)
+        return ret_str
+
+    pad = '  ' * depth
+    dumped = ''
+    if type(obj) == dict:
+        for k, v in obj.items():
+            if hasattr(v, '__iter__'):
+                dumped = appendln(dumped, '{}{}:'.format(pad, k))
+                dumped = appendln(dumped, clean_dump(v, depth + 1))
+            else:
+                dumped = appendln(dumped, '{}{}: {}'.format(pad, k, v))
+    elif type(obj) == list:
+        for v in obj:
+            if hasattr(v, '__iter__'):
+                dumped = appendln(dumped, clean_dump(v))
+            else:
+                dumped = appendln(dumped, v)
+    else:
+        dumped = appendln(dumped, obj)
+    return dumped
 
 if __name__ == '__main__':
     init()
